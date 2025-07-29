@@ -1,9 +1,10 @@
 # MCPSoc - 基于MCP协议的开放式智能安全运营中心
 
-![MCPSoc Logo](https://img.shields.io/badge/MCPSoc-v1.0.0-blue)
+![MCPSoc Logo](https://img.shields.io/badge/MCPSoc-v0.1.0-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![Go Version](https://img.shields.io/badge/go-%3E%3D1.21-blue)
 ![MCP Protocol](https://img.shields.io/badge/MCP-2025--06--18-orange)
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 
 ## 🚀 项目简介
 
@@ -93,86 +94,129 @@ MCPSoc（Model Context Protocol Security Operations Center）是首个基于MCP�
 
 ### 系统要求
 - Go >= 1.21
-- PostgreSQL >= 14 (推荐TimescaleDB)
-- Redis >= 6.0
-- Docker (可选)
+- Docker >= 20.10
+- Docker Compose >= 2.0
+- 8GB+ RAM (推荐)
 
-### 安装步骤
+### 一键启动开发环境
 
-1. **克隆项目**
 ```bash
+# 克隆项目
 git clone https://github.com/your-org/mcpsoc.git
 cd mcpsoc
+
+# 设置环境变量 (可选)
+export OPENAI_API_KEY="your-openai-api-key"
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+
+# 启动开发环境
+./scripts/start-dev.sh
 ```
 
-2. **配置环境**
-```bash
-cp config/config.example.yaml config/config.yaml
-# 编辑配置文件
-```
-
-3. **安装依赖**
-```bash
-go mod download
-```
-
-4. **初始化数据库**
-```bash
-make db-migrate
-```
-
-5. **启动服务**
-```bash
-make run
-```
-
-### Docker 部署
+### 验证部署
 
 ```bash
-docker-compose up -d
+# 检查服务状态
+curl http://localhost:8080/health
+
+# 运行演示
+./scripts/demo.sh
 ```
+
+### 访问界面
+
+- 🌐 **Web界面**: http://localhost:3000
+- 📊 **API服务**: http://localhost:8080
+- 🔥 **防火墙MCP**: http://localhost:8081
 
 ## 📊 使用示例
 
 ### 自然语言查询
-```
-"分析用户 john@company.com 的设备上是否有与 malicious.com 相关的可疑活动"
-```
-
-### API调用
 ```bash
-curl -X POST http://localhost:8080/api/v1/query \
+curl -X POST http://localhost:8080/api/v1/query/natural \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "检查防火墙日志中的异常流量",
+    "query": "查找过去24小时内的高危威胁事件",
     "context": {
-      "time_range": "last_24h",
+      "time_range": "24h",
       "severity": "high"
     }
   }'
 ```
 
+### MCP工具调用
+```bash
+curl -X POST http://localhost:8080/api/v1/mcp/servers/firewall-pfsense-01/tools/get_firewall_logs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "arguments": {
+      "time_range": "1h",
+      "limit": 10
+    }
+  }'
+```
+
+### 阻止可疑IP
+```bash
+curl -X POST http://localhost:8080/api/v1/mcp/servers/firewall-pfsense-01/tools/block_ip \
+  -H "Content-Type: application/json" \
+  -d '{
+    "arguments": {
+      "ip_address": "192.168.1.100",
+      "duration": 3600,
+      "reason": "可疑活动检测"
+    }
+  }'
+```
+
+## 🎬 演示视频
+
+[![MCPSoc Demo](https://img.shields.io/badge/Demo-Watch%20Video-red)](https://example.com/mcpsoc-demo)
+
 ## 🏢 商业模式
 
-### 开源核心
+### 开源核心 (Apache 2.0)
 - ✅ MCP Server SDK
 - ✅ MCP Client 组件
 - ✅ MCP Host 核心功能
 - ✅ 基础安全工具集成
+- ✅ Web管理界面
+- ✅ 基础威胁检测
 
 ### 企业版增值功能
 - 🚀 企业级管理面板
 - 🚀 高级威胁分析
 - 🚀 自定义工作流
+- 🚀 多租户支持
 - 🚀 企业级支持和培训
+- 🚀 SLA保障
+
+## 📈 项目状态
+
+### 当前版本: v0.1.0 (MVP)
+- ✅ MCP协议核心实现
+- ✅ 基础MCP Server框架
+- ✅ 防火墙MCP Server示例
+- ✅ Web管理界面
+- ✅ 自然语言查询原型
+- ✅ Docker部署支持
+
+### 下一版本: v0.5.0 (Alpha)
+- 🔄 威胁情报集成
+- 🔄 图数据库关联分析
+- 🔄 更多MCP Server集成
+- 🔄 高级分析功能
+- 🔄 性能优化
 
 ## 📖 文档
 
-- [架构设计](./docs/architecture.md)
-- [API文档](./docs/api.md)
-- [开发指南](./docs/development.md)
-- [部署指南](./docs/deployment.md)
-- [MCP Server开发](./docs/mcp-server-development.md)
+- [📋 任务分解](./tasks.md) - 详细的开发任务和进度
+- [🏗️ 架构设计](./docs/architecture.md) - 系统架构和技术选型
+- [📡 API文档](./docs/api.md) - 完整的API接口规范
+- [💻 开发指南](./docs/development.md) - 开发环境和规范
+- [🚀 部署指南](./docs/deployment.md) - 多种部署方案
+- [📊 项目管理](./docs/project_management_plan.md) - 项目管理框架
+- [🤝 合作伙伴](./docs/partnership_ecosystem_plan.md) - 生态建设策略
 
 ## 🤝 贡献指南
 
@@ -184,6 +228,25 @@ curl -X POST http://localhost:8080/api/v1/query \
 - 📝 改进文档
 - 🔧 提交代码
 - 🔌 开发MCP Server插件
+
+### 开发者快速上手
+```bash
+# 安装开发工具
+make install-tools
+
+# 运行测试
+make test
+
+# 代码格式化
+make fmt
+
+# 构建项目
+make build
+```
+
+## 🌟 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=your-org/mcpsoc&type=Date)](https://star-history.com/#your-org/mcpsoc&Date)
 
 ## 📝 许可证
 
@@ -199,7 +262,17 @@ curl -X POST http://localhost:8080/api/v1/query \
 - 📧 邮箱: info@mcpsoc.org
 - 💬 Discord: https://discord.gg/mcpsoc
 - 🐦 Twitter: @MCPSoc
+- 📱 微信群: 扫码加入
+
+## 🔗 相关链接
+
+- [MCP协议规范](https://spec.modelcontextprotocol.io/)
+- [Anthropic MCP介绍](https://www.anthropic.com/news/model-context-protocol)
+- [开源SOC项目对比](https://github.com/topics/soc)
+- [网络安全开源工具](https://github.com/topics/cybersecurity)
 
 ---
 
 **让安全运营更加开放、智能、高效** 🛡️✨
+
+**如果这个项目对您有帮助，请给我们一个 ⭐ Star！**

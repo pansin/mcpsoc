@@ -1,0 +1,58 @@
+# MCPSoc 配置文件
+
+server:
+  port: 8080
+  debug: true
+
+database:
+  host: localhost
+  port: 5432
+  user: mcpsoc
+  password: mcpsoc_password
+  database: mcpsoc
+  ssl_mode: disable
+
+mcp:
+  servers:
+    - id: "firewall-pfsense-01"
+      name: "pfSense Firewall"
+      type: "firewall"
+      transport: "http"
+      endpoint: "http://localhost:8081/mcp"
+      enabled: true
+      credentials:
+        api_key: "your-pfsense-api-key"
+    
+    - id: "waf-modsecurity-01"
+      name: "ModSecurity WAF"
+      type: "waf"
+      transport: "stdio"
+      endpoint: "/usr/local/bin/modsecurity-mcp-server"
+      enabled: true
+      credentials: {}
+    
+    - id: "av-clamav-01"
+      name: "ClamAV Antivirus"
+      type: "antivirus"
+      transport: "tcp"
+      endpoint: "localhost:8082"
+      enabled: true
+      credentials: {}
+
+ai:
+  default: "openai"
+  providers:
+    - name: "openai"
+      type: "openai"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-4"
+    
+    - name: "claude"
+      type: "anthropic"
+      api_key: "${ANTHROPIC_API_KEY}"
+      model: "claude-3-sonnet-20240229"
+
+security:
+  jwt_secret: "${JWT_SECRET}"
+  api_keys:
+    - "mcpsoc-demo-key-12345"

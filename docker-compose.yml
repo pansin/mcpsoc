@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  mcpsoc-host:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - MCPSOC_DATABASE_HOST=postgres
+      - MCPSOC_DATABASE_PASSWORD=mcpsoc_password
+      - MCPSOC_JWT_SECRET=your-jwt-secret-key
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+    networks:
+      - mcpsoc-network
+    restart: unless-stopped
+
+  postgres:
+    image: timescale/timescaledb:latest-pg14
+    environment:
+      - POSTGRES_DB=mcpsoc
+      - POSTGRES_USER=mcpsoc
+      - POSTGRES_PASSWORD=mcpsoc_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - mcpsoc-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass mcpsoc_redis_password
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - mcpsoc-network
+    restart: unless-stopped
+
+  # 示例MCP服务器
+  firewall-server:
+    build: ./examples/firewall-server
+    environment:
+      - PFSENSE_HOST=${PFSENSE_HOST:-demo.pfsense.local}
+      - PFSENSE_USER=${PFSENSE_USER:-admin}
+      - PFSENSE_PASSWORD=${PFSENSE_PASSWORD:-admin}
+    ports:
+      - "8081:8081"
+    networks:
+      - mcpsoc-network
+    restart: unless-stopped
+
+  # Web界面 (开发模式)
+  web-dev:
+    build: 
+      context: ./mcpsoc-demo
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8080
+    volumes:
+      - ./mcpsoc-demo/src:/app/src
+      - ./mcpsoc-demo/public:/app/public
+    networks:
+      - mcpsoc-network
+    depends_on:
+      - mcpsoc-host
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  mcpsoc-network:
+    driver: bridge
