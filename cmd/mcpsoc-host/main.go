@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mcpsoc/mcpsoc/internal/ai"
 	"github.com/mcpsoc/mcpsoc/internal/api"
 	"github.com/mcpsoc/mcpsoc/internal/config"
 	"github.com/mcpsoc/mcpsoc/internal/logger"
@@ -85,8 +86,14 @@ func runServer(cmd *cobra.Command, args []string) {
 	// 初始化MCP管理器
 	mcpManager := mcp.NewManager(log)
 
+	// 初始化AI服务
+	aiService, err := initializeAIService(cfg, log)
+	if err != nil {
+		log.WithError(err).Warn("Failed to initialize AI service, continuing without AI features")
+	}
+
 	// 初始化API路由
-	router := setupRouter(cfg, log, db, mcpManager)
+	router := setupRouter(cfg, log, db, mcpManager, aiService)
 
 	// 创建HTTP服务器
 	srv := &http.Server{
@@ -120,7 +127,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	log.Info("Server exited")
 }
 
-func setupRouter(cfg *config.Config, log *logrus.Logger, db storage.Database, mcpManager *mcp.Manager) *gin.Engine {
+func setupRouter(cfg *config.Config, log *logrus.Logger, db storage.Database, mcpManager *mcp.Manager, aiService ai.Service) *gin.Engine {
 	// 设置Gin模式
 	if cfg.Server.Debug {
 		gin.SetMode(gin.DebugMode)
@@ -144,7 +151,7 @@ func setupRouter(cfg *config.Config, log *logrus.Logger, db storage.Database, mc
 	})
 
 	// API路由
-	apiHandler := api.NewHandler(log, db, mcpManager)
+	apiHandler := api.NewHandler(log, db, mcpManager, aiService)
 	v1 := router.Group("/api/v1")
 	{
 		v1.POST("/query/natural", apiHandler.HandleNaturalQuery)
@@ -155,4 +162,42 @@ func setupRouter(cfg *config.Config, log *logrus.Logger, db storage.Database, mc
 	}
 
 	return router
+}
+
+// initializeAIService 初始化AI服务
+func initializeAIService(cfg *config.Config, log *logrus.Logger) (ai.Service, error) {
+	// 创建AI配置
+	aiConfig := &ai.Config{
+		DefaultProvider: "openai",
+		Providers: []ai.ProviderConfig{
+			{
+				Name:    "openai",
+				Type:    ai.ProviderOpenAI,
+				APIKey:  os.Getenv("OPENAI_API_KEY"),
+				Model:   "gpt-3.5-turbo",
+				BaseURL: "https://api.openai.com/v1",
+			},
+			{
+				Name:    "claude",
+				Type:    ai.ProviderAnthropic,
+				APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+				Model:   "claude-3-haiku-20240307",
+				BaseURL: "https://api.anthropic.com/v1",
+			},
+		},
+	}
+
+	// 如果没有API Key，返回错误
+	if aiConfig.Providers[0].APIKey == "" && aiConfig.Providers[1].APIKey == "" {
+		return nil, fmt.Errorf("no AI API keys configured")
+	}
+
+	// 创建AI服务
+	service, err := ai.NewService(log, aiConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AI service: %w", err)
+	}
+
+	log.Info("AI service initialized successfully")
+	return service, nil
 }

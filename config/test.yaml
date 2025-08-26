@@ -1,0 +1,44 @@
+server:
+  port: 8080
+  debug: true
+
+database:
+  host: localhost
+  port: 5432
+  user: mcpsoc_test
+  password: test_password
+  database: mcpsoc_test
+  ssl_mode: disable
+
+mcp:
+  servers:
+    - id: "test-firewall"
+      name: "Test Firewall Server"
+      type: "firewall"
+      transport: "websocket"
+      endpoint: "ws://localhost:8081"
+      enabled: true
+    - id: "test-waf" 
+      name: "Test WAF Server"
+      type: "waf"
+      transport: "http"
+      endpoint: "http://localhost:8082"
+      enabled: true
+
+ai:
+  default: "openai"
+  providers:
+    - name: "openai"
+      type: "openai"
+      api_key: "test-key"
+      model: "gpt-3.5-turbo"
+    - name: "claude"
+      type: "anthropic"
+      api_key: "test-claude-key"  
+      model: "claude-3-haiku"
+
+security:
+  jwt_secret: "test-jwt-secret-change-in-production"
+  api_keys:
+    - "test-api-key-1"
+    - "test-api-key-2"

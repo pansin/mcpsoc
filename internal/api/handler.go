@@ -1,29 +1,43 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mcpsoc/mcpsoc/internal/ai"
 	"github.com/mcpsoc/mcpsoc/internal/mcp"
 	"github.com/mcpsoc/mcpsoc/internal/storage"
+	"github.com/mcpsoc/mcpsoc/pkg/mcp"
 	"github.com/sirupsen/logrus"
 )
 
 // Handler API处理器
 type Handler struct {
-	logger     *logrus.Logger
-	db         storage.Database
-	mcpManager *mcp.Manager
+	logger        *logrus.Logger
+	db            storage.Database
+	mcpManager    *mcp.Manager
+	aiService     ai.Service
+	queryParser   *ai.QueryParser
+	toolTranslator *ai.ToolTranslator
 }
 
 // NewHandler 创建新的API处理器
-func NewHandler(logger *logrus.Logger, db storage.Database, mcpManager *mcp.Manager) *Handler {
+func NewHandler(logger *logrus.Logger, db storage.Database, mcpManager *mcp.Manager, aiService ai.Service) *Handler {
+	queryParser := ai.NewQueryParser(aiService, logger)
+	toolTranslator := ai.NewToolTranslator(mcpManager, logger)
+	
 	return &Handler{
-		logger:     logger,
-		db:         db,
-		mcpManager: mcpManager,
+		logger:        logger,
+		db:           db,
+		mcpManager:   mcpManager,
+		aiService:    aiService,
+		queryParser:  queryParser,
+		toolTranslator: toolTranslator,
 	}
 }
 
@@ -77,58 +91,53 @@ func (h *Handler) HandleNaturalQuery(c *gin.Context) {
 		return
 	}
 
+	if req.Query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "query cannot be empty"})
+		return
+	}
+
 	startTime := time.Now()
 	queryID := generateQueryID()
 
 	h.logger.WithFields(logrus.Fields{
 		"query_id": queryID,
 		"query":    req.Query,
-		"context":  req.Context,
+		"session":  req.SessionID,
 	}).Info("Processing natural language query")
 
-	// 这里应该实现实际的自然语言处理逻辑
-	// 目前返回模拟数据
+	// 获取可用的MCP工具
+	availableTools, err := h.getAvailableTools()
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get available tools")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get available tools"})
+		return
+	}
+
+	// 使用查询解析器解析自然语言
+	ctx := context.Background()
+	parsedQuery, err := h.queryParser.ParseQuery(ctx, req.Query, availableTools)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to parse query")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse query"})
+		return
+	}
+
+	// 执行解析后的查询
+	execResult, err := h.toolTranslator.ExecuteQuery(ctx, parsedQuery)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to execute query")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to execute query"})
+		return
+	}
+
+	// 构建响应
 	response := NaturalQueryResponse{
-		QueryID: queryID,
-		Status:  "completed",
-		Result: map[string]interface{}{
-			"summary": "发现15个来自可疑IP的连接",
-			"data": []map[string]interface{}{
-				{
-					"timestamp": time.Now().Add(-1 * time.Hour),
-					"src_ip":    "192.168.1.100",
-					"dst_ip":    "10.0.0.5",
-					"dst_port":  22,
-					"protocol":  "tcp",
-					"action":    "blocked",
-					"threat_level": "high",
-				},
-			},
-		},
-		Insights: []Insight{
-			{
-				Type:       "threat_indicator",
-				Severity:   "high",
-				Message:    "检测到来自已知恶意IP 192.168.1.100的多次连接尝试",
-				Confidence: 0.95,
-			},
-		},
-		Actions: []RecommendedAction{
-			{
-				Action:   "block_ip",
-				Target:   "192.168.1.100",
-				Reason:   "多次恶意连接尝试",
-				Priority: "high",
-			},
-		},
-		Evidence: []Evidence{
-			{
-				Source:    "firewall",
-				Type:      "log_entry",
-				Data:      map[string]interface{}{"blocked_connections": 15},
-				Timestamp: time.Now(),
-			},
-		},
+		QueryID:       queryID,
+		Status:        "completed",
+		Result:        execResult,
+		Insights:      h.convertToInsights(execResult),
+		Actions:       h.convertToActions(execResult.Recommendations),
+		Evidence:      h.convertToEvidence(execResult.Results),
 		ExecutionTime: time.Since(startTime).Seconds(),
 	}
 
@@ -136,7 +145,7 @@ func (h *Handler) HandleNaturalQuery(c *gin.Context) {
 	history := &storage.QueryHistory{
 		QueryType:     "natural",
 		QueryText:     req.Query,
-		ResultCount:   1,
+		ResultCount:   len(execResult.Results),
 		ExecutionTime: int64(time.Since(startTime).Milliseconds()),
 		Status:        "success",
 	}
@@ -326,4 +335,266 @@ func countHealthyServers(servers []mcp.ServerStatus) int {
 		}
 	}
 	return count
+}
+
+// generateMockResponse 生成模拟响应
+func (h *Handler) generateMockResponse(queryID, query string, startTime time.Time) NaturalQueryResponse {
+	return NaturalQueryResponse{
+		QueryID: queryID,
+		Status:  "completed",
+		Result: map[string]interface{}{
+			"summary": "发现15个来自可疑IP的连接",
+			"data": []map[string]interface{}{
+				{
+					"timestamp":    time.Now().Add(-1 * time.Hour),
+					"src_ip":       "192.168.1.100",
+					"dst_ip":       "10.0.0.5",
+					"dst_port":     22,
+					"protocol":     "tcp",
+					"action":       "blocked",
+					"threat_level": "high",
+				},
+			},
+		},
+		Insights: []Insight{
+			{
+				Type:       "threat_indicator",
+				Severity:   "high",
+				Message:    "检测到来自已知恶意IP 192.168.1.100的多次连接尝试",
+				Confidence: 0.95,
+			},
+		},
+		Actions: []RecommendedAction{
+			{
+				Action:   "block_ip",
+				Target:   "192.168.1.100",
+				Reason:   "多次恶意连接尝试",
+				Priority: "high",
+			},
+		},
+		Evidence: []Evidence{
+			{
+				Source:    "firewall",
+				Type:      "log_entry",
+				Data:      map[string]interface{}{"blocked_connections": 15},
+				Timestamp: time.Now(),
+			},
+		},
+		ExecutionTime: time.Since(startTime).Seconds(),
+	}
+}
+
+// buildNaturalQueryResponse 构建自然语言查询响应
+func (h *Handler) buildNaturalQueryResponse(queryID, originalQuery string, aiResponse *ai.QueryResponse, startTime time.Time) NaturalQueryResponse {
+	return NaturalQueryResponse{
+		QueryID: queryID,
+		Status:  "completed",
+		Result: map[string]interface{}{
+			"ai_response": aiResponse.Response,
+			"query_type": string(aiResponse.Type),
+			"confidence": aiResponse.Confidence,
+			"tokens":     aiResponse.Tokens,
+			"summary":    h.extractSummaryFromAIResponse(aiResponse.Response),
+		},
+		Insights: []Insight{
+			{
+				Type:       "ai_analysis",
+				Severity:   h.inferSeverityFromResponse(aiResponse.Response),
+				Message:    "AI分析结果",
+				Confidence: aiResponse.Confidence,
+			},
+		},
+		Actions:       []RecommendedAction{}, // 将由威胁分析填充
+		Evidence: []Evidence{
+			{
+				Source:    "ai_service",
+				Type:      "analysis_result",
+				Data:      aiResponse,
+				Timestamp: aiResponse.CreatedAt,
+			},
+		},
+		ExecutionTime: time.Since(startTime).Seconds(),
+	}
+}
+
+// extractSummaryFromAIResponse 从AI响应中提取摘要
+func (h *Handler) extractSummaryFromAIResponse(response string) string {
+	// 简单的摘要提取逻辑
+	if len(response) > 200 {
+		return response[:200] + "..."
+	}
+	return response
+}
+
+// inferSeverityFromResponse 从响应中推断严重程度
+func (h *Handler) inferSeverityFromResponse(response string) string {
+	response = strings.ToLower(response)
+	if strings.Contains(response, "critical") || strings.Contains(response, "严重") {
+		return "critical"
+	} else if strings.Contains(response, "high") || strings.Contains(response, "高") {
+		return "high"
+	} else if strings.Contains(response, "low") || strings.Contains(response, "低") {
+		return "low"
+	}
+	return "medium"
+}
+
+// getAvailableTools 获取可用的MCP工具
+func (h *Handler) getAvailableTools() ([]ai.AvailableTool, error) {
+	var tools []ai.AvailableTool
+	
+	// 获取所有MCP服务器
+	servers := h.mcpManager.ListServers()
+	
+	for _, server := range servers {
+		// 获取每个服务器的工具列表
+		serverTools, err := h.mcpManager.ListTools(server.ID)
+		if err != nil {
+			h.logger.WithError(err).WithField("server_id", server.ID).Warn("Failed to get tools for server")
+			continue
+		}
+		
+		// 转换为AvailableTool格式
+		for _, tool := range serverTools {
+			availableTool := ai.AvailableTool{
+				Name:        tool.Name,
+				Description: tool.Description,
+				Server:      server.ID,
+				Parameters:  h.convertToolParameters(tool.InputSchema),
+			}
+			tools = append(tools, availableTool)
+		}
+	}
+	
+	return tools, nil
+}
+
+// convertToolParameters 转换工具参数格式
+func (h *Handler) convertToolParameters(schema mcp.JSONSchema) []ai.ToolParameter {
+	var parameters []ai.ToolParameter
+	
+	if schema.Properties != nil {
+		for name, prop := range schema.Properties {
+			param := ai.ToolParameter{
+				Name:        name,
+				Type:        prop.Type,
+				Description: prop.Description,
+				Required:    h.isRequiredParameter(name, schema.Required),
+			}
+			parameters = append(parameters, param)
+		}
+	}
+	
+	return parameters
+}
+
+// isRequiredParameter 检查参数是否必需
+func (h *Handler) isRequiredParameter(paramName string, required []string) bool {
+	for _, req := range required {
+		if req == paramName {
+			return true
+		}
+	}
+	return false
+}
+
+// convertToInsights 转换执行结果为洞察
+func (h *Handler) convertToInsights(execResult *ai.AggregatedResult) []Insight {
+	var insights []Insight
+	
+	// 基于执行结果的成功率生成洞察
+	if execResult.ErrorCount > 0 {
+		insights = append(insights, Insight{
+			Type:       "execution_warning",
+			Severity:   "medium",
+			Message:    fmt.Sprintf("有%d个工具调用失败，可能影响分析结果的完整性", execResult.ErrorCount),
+			Confidence: 0.9,
+		})
+	}
+	
+	// 基于执行时间生成洞察
+	if execResult.TotalDuration.Seconds() > 5 {
+		insights = append(insights, Insight{
+			Type:       "performance_warning",
+			Severity:   "low",
+			Message:    fmt.Sprintf("查询执行时间较长（%.2f秒），建议优化查询条件", execResult.TotalDuration.Seconds()),
+			Confidence: 0.8,
+		})
+	}
+	
+	// 基于意图类型生成特定洞察
+	switch execResult.Intent {
+	case "threat_analysis":
+		insights = append(insights, Insight{
+			Type:       "threat_analysis",
+			Severity:   "high",
+			Message:    "完成了威胁分析，建议查看详细的威胁指标和缓解措施",
+			Confidence: 0.85,
+		})
+	case "log_analysis":
+		insights = append(insights, Insight{
+			Type:       "log_analysis",
+			Severity:   "medium",
+			Message:    "日志分析完成，建议关注异常模式和时间趋势",
+			Confidence: 0.8,
+		})
+	}
+	
+	return insights
+}
+
+// convertToActions 转换推荐列表为行动
+func (h *Handler) convertToActions(recommendations []string) []RecommendedAction {
+	var actions []RecommendedAction
+	
+	for i, rec := range recommendations {
+		action := RecommendedAction{
+			Action:   fmt.Sprintf("action_%d", i+1),
+			Target:   "system",
+			Reason:   rec,
+			Priority: h.inferPriorityFromRecommendation(rec),
+		}
+		actions = append(actions, action)
+	}
+	
+	return actions
+}
+
+// convertToEvidence 转换执行结果为证据
+func (h *Handler) convertToEvidence(results []ai.ExecutionResult) []Evidence {
+	var evidence []Evidence
+	
+	for _, result := range results {
+		ev := Evidence{
+			Source:    result.ToolCall.Server,
+			Type:      "tool_execution_result",
+			Data: map[string]interface{}{
+				"tool":     result.ToolCall.Tool,
+				"success":  result.Success,
+				"result":   result.Result,
+				"duration": result.Duration.String(),
+			},
+			Timestamp: result.Timestamp,
+		}
+		evidence = append(evidence, ev)
+	}
+	
+	return evidence
+}
+
+// inferPriorityFromRecommendation 从推荐内容推断优先级
+func (h *Handler) inferPriorityFromRecommendation(recommendation string) string {
+	recommendation = strings.ToLower(recommendation)
+	
+	if strings.Contains(recommendation, "紧急") || strings.Contains(recommendation, "立即") || 
+	   strings.Contains(recommendation, "urgent") || strings.Contains(recommendation, "immediate") {
+		return "high"
+	}
+	
+	if strings.Contains(recommendation, "建议") || strings.Contains(recommendation, "考虑") ||
+	   strings.Contains(recommendation, "recommend") || strings.Contains(recommendation, "consider") {
+		return "low"
+	}
+	
+	return "medium"
 }
